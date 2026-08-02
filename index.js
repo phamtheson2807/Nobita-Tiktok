@@ -740,9 +740,68 @@ async function normalizeFbUrl(fbUrl) {
     return fbUrl;
 }
 
+async function downloadFacebookDirect(fbUrl) {
+    const ytdl = await getYtDlExec();
+    const fileId = `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
+    const outputTemplate = path.join(__dirname, `${fileId}.%(ext)s`);
+
+    try {
+        await ytdl(fbUrl, {
+            output: outputTemplate,
+            format: 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+            mergeOutputFormat: 'mp4',
+            noPlaylist: true,
+            noWarnings: true,
+            noCheckCertificates: true,
+            retries: 3,
+            fragmentRetries: 3,
+            socketTimeout: 30,
+            addHeader: [
+                'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+                'Accept-Language:en-US,en;q=0.9',
+            ],
+        });
+
+        const localPath = fs.readdirSync(__dirname)
+            .filter(name => name.startsWith(fileId + '.'))
+            .map(name => path.join(__dirname, name))
+            .find(file => fs.statSync(file).isFile());
+
+        if (!localPath) throw new Error('yt-dlp không tạo được file Facebook');
+
+        const sizeMB = fs.statSync(localPath).size / 1024 / 1024;
+        return {
+            isLocal: true,
+            localPath,
+            url: fbUrl,
+            title: 'Facebook Video',
+            sizeMB,
+            isTooLarge: sizeMB > TG_MAX_UPLOAD_MB,
+        };
+    } catch (error) {
+        for (const name of fs.readdirSync(__dirname)) {
+            if (name.startsWith(fileId + '.')) {
+                fs.rmSync(path.join(__dirname, name), { force: true });
+            }
+        }
+        throw error;
+    }
+}
+
 async function downloadFacebookVideo(fbUrl) {
     const realUrl = await normalizeFbUrl(fbUrl);
     console.log(`[FB] Processing: ${realUrl.substring(0, 80)}`);
+
+    // Download locally first. Facebook CDN URLs are short-lived and often return
+    // HTTP 403 when they are extracted by one service and fetched again by Render.
+    try {
+        console.log('[FB] Trying direct yt-dlp download...');
+        const direct = await retryWithBackoff(() => downloadFacebookDirect(realUrl), 2, 1000);
+        console.log('[FB] ✅ Direct yt-dlp download succeeded');
+        return direct;
+    } catch (e) {
+        console.log(`[FB] ❌ Direct yt-dlp failed: ${e.message}; trying API fallbacks`);
+    }
 
     const HB = {
         'User-Agent':      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
