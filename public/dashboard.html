@@ -1,0 +1,56 @@
+<!doctype html>
+<html lang="vi">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>Nobita Bot Dashboard</title>
+  <style>
+    :root{color-scheme:dark;--bg:#07111f;--panel:#101d30;--line:#23344d;--text:#eef5ff;--muted:#90a4bf;--blue:#5aa7ff;--green:#35d07f;--red:#ff6b7a}
+    *{box-sizing:border-box}body{margin:0;font:15px/1.5 system-ui,-apple-system,Segoe UI,sans-serif;background:radial-gradient(circle at top right,#153258 0,transparent 35%),var(--bg);color:var(--text)}
+    main{width:min(1120px,calc(100% - 32px));margin:32px auto}.head{display:flex;align-items:center;justify-content:space-between;gap:16px;margin-bottom:24px}
+    h1{margin:0;font-size:clamp(24px,4vw,36px)}.sub,.muted{color:var(--muted)}.status{display:flex;align-items:center;gap:8px}.dot{width:10px;height:10px;border-radius:50%;background:var(--green);box-shadow:0 0 14px var(--green)}
+    .grid{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}.card{background:rgba(16,29,48,.92);border:1px solid var(--line);border-radius:16px;padding:18px;box-shadow:0 12px 28px #0003}
+    .value{font-size:30px;font-weight:750;margin-top:6px}.wide{grid-column:span 2}.full{grid-column:1/-1}table{width:100%;border-collapse:collapse;margin-top:10px}th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line)}th{color:var(--muted);font-weight:600}
+    .bar{height:8px;background:#203149;border-radius:20px;overflow:hidden}.bar span{display:block;height:100%;background:linear-gradient(90deg,var(--blue),var(--green));border-radius:inherit}
+    .error{color:var(--red)}button{border:1px solid var(--line);background:#172943;color:var(--text);padding:9px 13px;border-radius:10px;cursor:pointer}
+    @media(max-width:800px){.grid{grid-template-columns:repeat(2,1fr)}.wide{grid-column:1/-1}}@media(max-width:520px){.grid{grid-template-columns:1fr}.wide,.full{grid-column:auto}.head{align-items:flex-start;flex-direction:column}}
+  </style>
+</head>
+<body>
+<main>
+  <div class="head"><div><h1>🤖 Nobita Bot</h1><div class="sub">Bảng điều khiển quản trị</div></div><div class="status"><span class="dot"></span><span id="status">Đang kết nối</span><button onclick="loadAll()">Làm mới</button></div></div>
+  <section class="grid">
+    <article class="card"><div class="muted">Phiên bản</div><div class="value" id="version">—</div></article>
+    <article class="card"><div class="muted">Thời gian chạy</div><div class="value" id="uptime">—</div></article>
+    <article class="card"><div class="muted">RAM tiến trình</div><div class="value" id="memory">—</div></article>
+    <article class="card"><div class="muted">Telegram Client</div><div class="value" id="telegram">—</div></article>
+    <article class="card wide"><h2>Nền tảng</h2><div id="platforms" class="muted">Đang tải…</div></article>
+    <article class="card wide"><h2>Người dùng nổi bật</h2><div id="leaders" class="muted">Đang tải…</div></article>
+    <article class="card full"><h2>Hoạt động gần đây</h2><div id="activity" class="muted">Đang tải…</div></article>
+  </section>
+</main>
+<script>
+  const token=new URLSearchParams(location.search).get('token')||'';
+  const api=async url=>{const join=url.includes('?')?'&':'?';const r=await fetch(url+join+'token='+encodeURIComponent(token));if(!r.ok)throw new Error('HTTP '+r.status);return r.json()};
+  const esc=s=>String(s??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const duration=s=>{s=Math.floor(Number(s)||0);const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?d+' ngày '+h+' giờ':h?h+' giờ '+m+' phút':m+' phút'};
+  async function loadAll(){
+    document.getElementById('status').textContent='Đang cập nhật';
+    try{
+      const [health,platforms,leaders,activity]=await Promise.all([
+        api('/api/system/health'),api('/api/stats/platforms'),api('/api/stats/leaderboard'),api('/api/stats/activity?limit=20')
+      ]);
+      version.textContent='v'+esc(health.version||'?');uptime.textContent=duration(health.uptime);memory.textContent=(health.rssMB||0)+' MB';telegram.textContent=health.telegramClient?'Đã kết nối':'Chưa kết nối';
+      const ps=platforms.platforms||platforms.data||platforms||[];
+      document.getElementById('platforms').innerHTML=ps.length?'<table><thead><tr><th>Nền tảng</th><th>Lượt tải</th><th>Thành công</th></tr></thead><tbody>'+ps.map(p=>'<tr><td>'+esc((p.emoji||'')+' '+(p.name||p.key))+'</td><td>'+esc(p.total||0)+'</td><td><div class="bar"><span style="width:'+Math.max(0,Math.min(100,p.successRate||0))+'%"></span></div> '+esc(p.successRate||0)+'%</td></tr>').join('')+'</tbody></table>':'Chưa có dữ liệu';
+      const ls=leaders.global||leaders.data||[];
+      document.getElementById('leaders').innerHTML=ls.length?'<table><thead><tr><th>#</th><th>Người dùng</th><th>Lượt dùng</th></tr></thead><tbody>'+ls.slice(0,10).map((u,i)=>'<tr><td>'+(i+1)+'</td><td>'+esc((u.badge||'')+' @'+(u.username||u.id))+'</td><td>'+esc(u.count||0)+'</td></tr>').join('')+'</tbody></table>':'Chưa có dữ liệu';
+      const logs=activity.data||activity||[];
+      document.getElementById('activity').innerHTML=logs.length?'<table><thead><tr><th>Thời gian</th><th>Nội dung</th></tr></thead><tbody>'+logs.map(l=>'<tr><td>'+esc(l.time||'')+'</td><td>'+esc(l.text||'')+'</td></tr>').join('')+'</tbody></table>':'Chưa có hoạt động';
+      document.getElementById('status').textContent='Đang hoạt động';
+    }catch(e){document.getElementById('status').textContent='Không tải được dữ liệu';document.getElementById('status').className='error';document.getElementById('activity').innerHTML='<span class="error">'+esc(e.message)+'</span>'}
+  }
+  loadAll();setInterval(loadAll,30000);
+</script>
+</body>
+</html>
