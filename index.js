@@ -531,7 +531,9 @@ async function retryWithBackoff(fn, maxRetries = 2, baseDelay = 800) {
 }
 
 async function getYtDlExec() {
-    for (const pkg of ['yt-dlp-exec', 'youtube-dl-exec']) {
+    // youtube-dl-exec bundles its own yt-dlp executable during npm install.
+    // Prefer it on native Render services where a system-level `yt-dlp` may not exist.
+    for (const pkg of ['youtube-dl-exec', 'yt-dlp-exec']) {
         try { return require(pkg); } catch (_) {}
     }
     const { execFile }  = require('child_process');
