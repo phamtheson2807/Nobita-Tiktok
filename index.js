@@ -420,8 +420,10 @@ function checkRateLimit(userId) {
 }
 
 // ============================================================
-// 🎭 FUN CONTENT
+// 🎭 FUN CONTENT — AI tự sinh, có fallback cứng khi AI lỗi/tắt
 // ============================================================
+// Đây là fallback CUỐI CÙNG, chỉ dùng khi chưa gọi được AI lần nào
+// hoặc AI đang lỗi/hết quota. Bình thường FUN.* sẽ được AI ghi đè.
 const FUN = {
     waitLines: [
         'Đang nấu video... đừng rời mắt nhé 🍳',
@@ -470,13 +472,134 @@ const FUN = {
 // ============================================================
 // 🤖 AI CHATBOT
 // ============================================================
-const FALLBACK_RESPONSES = [
+// Fallback cứng khi Gemini chưa cấu hình hoặc đang lỗi.
+let FALLBACK_RESPONSES = [
     '😄 Bạn nói thế à? Mình thích nói chuyện với bạn!',
     '👍 Hay đấy! Bạn có video nào cần tải không?',
     '🤔 Thú vị đấy! Gửi link cho mình tải nhé!',
     '😊 Mình rất vui khi được trò chuyện với bạn!',
     '🎉 Bạn tuyệt vời! Còn gì khác mình có thể giúp không?',
 ];
+
+// ------------------------------------------------------------
+// 🧠 AI CONTENT GENERATOR
+// Gọi Gemini để tự viết nội dung cho từng nhóm FUN.*, thay vì
+// dùng mảng cứng. Kết quả được cache vào FUN/FALLBACK_RESPONSES
+// và làm mới định kỳ trong nền — không gọi AI mỗi lần người dùng
+// bấm nút, để tránh làm chậm phản hồi và tốn quota.
+// ------------------------------------------------------------
+const FUN_PROMPTS = {
+    waitLines:    'Viết các câu tiếng Việt, ngắn (dưới 12 từ), hài hước, có 1 emoji cuối câu, dùng để hiển thị khi bot đang xử lý/tải video cho người dùng chờ.',
+    successLines: 'Viết các câu tiếng Việt, ngắn (dưới 12 từ), vui vẻ, có 1 emoji cuối câu, dùng để báo tải video thành công.',
+    failLines:    'Viết các câu tiếng Việt, ngắn (dưới 12 từ), hài hước nhẹ nhàng (không xúc phạm), có 1 emoji cuối câu, dùng để báo lỗi tải video nhưng vẫn giữ không khí vui vẻ.',
+    startTips:    'Viết các câu tiếng Việt, ngắn (dưới 14 từ), thân thiện, có 1 emoji cuối câu, dùng làm lời chào khi người dùng gõ lệnh /start cho một Telegram bot tải video.',
+    jokes:        'Viết các câu chuyện cười ngắn (1 câu, dưới 25 từ) bằng tiếng Việt, chủ đề công nghệ/lập trình/bot, có emoji cuối câu.',
+    memes:        'Viết các câu "meme" ngắn hài hước bằng tiếng Việt (dưới 20 từ), phong cách mạng xã hội, có emoji, chủ đề tải video/mạng/công nghệ.',
+};
+
+async function generateFunBatch(type, count = 6) {
+    if (!geminiModel || !FUN_PROMPTS[type]) return null;
+    try {
+        const result = await geminiModel.generateContent(
+            `${FUN_PROMPTS[type]}\nTạo đúng ${count} câu KHÁC NHAU. ` +
+            `Chỉ trả về DUY NHẤT một mảng JSON các chuỗi, ví dụ: ["câu 1","câu 2"]. Không thêm markdown, không thêm giải thích.`
+        );
+        const raw = result.response.text().replace(/```json|```/g, '').trim();
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length && arr.every(s => typeof s === 'string' && s.trim())) return arr;
+    } catch (e) {
+        console.error(`⚠️  AI generate "${type}" failed:`, e.message);
+    }
+    return null;
+}
+
+async function generateRiddlesBatch(count = 5) {
+    if (!geminiModel) return null;
+    try {
+        const result = await geminiModel.generateContent(
+            `Tạo ${count} câu đố vui dân gian tiếng Việt, ngắn gọn, có đáp án 1-3 từ. ` +
+            `Chỉ trả về DUY NHẤT JSON dạng mảng object [{"q":"câu hỏi","a":"đáp án"}]. Không thêm markdown, không giải thích.`
+        );
+        const raw = result.response.text().replace(/```json|```/g, '').trim();
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length && arr.every(o => o && typeof o.q === 'string' && typeof o.a === 'string')) return arr;
+    } catch (e) {
+        console.error('⚠️  AI generate riddles failed:', e.message);
+    }
+    return null;
+}
+
+async function generateQuizzesBatch(count = 5) {
+    if (!geminiModel) return null;
+    try {
+        const result = await geminiModel.generateContent(
+            `Tạo ${count} câu hỏi trắc nghiệm vui, kiến thức phổ thông, tiếng Việt, mỗi câu đúng 3 lựa chọn. ` +
+            `Chỉ trả về DUY NHẤT JSON dạng mảng object [{"q":"câu hỏi","opts":["a","b","c"],"answer":0}] ` +
+            `(answer là chỉ số đáp án đúng, 0-based). Không thêm markdown, không giải thích.`
+        );
+        const raw = result.response.text().replace(/```json|```/g, '').trim();
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length && arr.every(o =>
+            o && typeof o.q === 'string' && Array.isArray(o.opts) && o.opts.length >= 2 &&
+            Number.isInteger(o.answer) && o.answer >= 0 && o.answer < o.opts.length
+        )) return arr;
+    } catch (e) {
+        console.error('⚠️  AI generate quizzes failed:', e.message);
+    }
+    return null;
+}
+
+async function generateFallbackResponsesBatch(count = 8) {
+    if (!geminiModel) return null;
+    try {
+        const result = await geminiModel.generateContent(
+            `Viết ${count} câu trả lời ngắn (dưới 15 từ), tiếng Việt, thân thiện, có emoji, dùng làm phản hồi ` +
+            `mặc định khi một Telegram bot tải video trò chuyện phiếm với người dùng và không có gì cụ thể để nói. ` +
+            `Chỉ trả về DUY NHẤT một mảng JSON các chuỗi. Không thêm markdown, không giải thích.`
+        );
+        const raw = result.response.text().replace(/```json|```/g, '').trim();
+        const arr = JSON.parse(raw);
+        if (Array.isArray(arr) && arr.length && arr.every(s => typeof s === 'string' && s.trim())) return arr;
+    } catch (e) {
+        console.error('⚠️  AI generate fallback responses failed:', e.message);
+    }
+    return null;
+}
+
+async function refreshAllFunPools() {
+    if (!geminiModel) return; // Chưa cấu hình GEMINI_API_KEY -> giữ nguyên nội dung mặc định
+    console.log('🔄 Đang làm mới nội dung vui bằng AI...');
+    const [wait, success, fail, tips, jokes, memes, riddles, quizzes, fallback] = await Promise.all([
+        generateFunBatch('waitLines'),
+        generateFunBatch('successLines'),
+        generateFunBatch('failLines'),
+        generateFunBatch('startTips'),
+        generateFunBatch('jokes'),
+        generateFunBatch('memes'),
+        generateRiddlesBatch(),
+        generateQuizzesBatch(),
+        generateFallbackResponsesBatch(),
+    ]);
+    // Chỉ ghi đè khi AI trả về hợp lệ; nếu không giữ nguyên dữ liệu cũ (mặc định hoặc lần refresh trước).
+    if (wait)     FUN.waitLines    = wait;
+    if (success)  FUN.successLines = success;
+    if (fail)     FUN.failLines    = fail;
+    if (tips)     FUN.startTips    = tips;
+    if (jokes)    FUN.jokes        = jokes;
+    if (memes)    FUN.memes        = memes;
+    if (riddles)  FUN.riddles      = riddles;
+    if (quizzes)  FUN.quizzes      = quizzes;
+    if (fallback) FALLBACK_RESPONSES = fallback;
+    console.log('✅ Đã làm mới nội dung vui bằng AI.');
+}
+
+// Làm mới lần đầu ngay sau khi khởi động (chạy nền, không chặn bot start)
+// rồi lặp lại mỗi 6 tiếng để nội dung luôn mới, không lặp lại nhàm chán.
+const FUN_REFRESH_INTERVAL = 6 * 60 * 60 * 1000;
+refreshAllFunPools().catch(e => console.error('⚠️  refreshAllFunPools lỗi:', e.message));
+setInterval(() => {
+    refreshAllFunPools().catch(e => console.error('⚠️  refreshAllFunPools lỗi:', e.message));
+}, FUN_REFRESH_INTERVAL);
 
 async function getAIResponse(userMessage, userId) {
     try {
@@ -673,7 +796,23 @@ async function downloadToFile(url, destPath, extraHeaders = {}) {
 // One maintained fallback for every public URL supported by yt-dlp. Third-party
 // converter APIs change frequently; downloading locally also avoids expiring CDN
 // links between extraction and Telegram upload.
-async function downloadWithYtDlp(url, platform) {
+// Lỗi thoáng qua (transient) do TikTok rate-limit/chặn tạm thời IP —
+// thử lại vẫn có cơ hội thành công, khác với lỗi "cần cookie/login" là vĩnh viễn.
+const YTDLP_TRANSIENT_PATTERNS = [
+    /unable to extract universal data/i,
+    /unable to extract .*rehydration/i,
+    /http error 403/i,
+    /http error 429/i,
+    /timed ?out/i,
+    /econnreset/i,
+];
+
+function isYtDlpTransientError(message = '') {
+    return YTDLP_TRANSIENT_PATTERNS.some(re => re.test(message));
+}
+
+async function downloadWithYtDlp(url, platform, attempt = 1) {
+    const MAX_ATTEMPTS = 3;
     const ytdlpPath = await getYtDlpPath();
     const { execFile } = require('child_process');
     const { promisify } = require('util');
@@ -717,6 +856,14 @@ async function downloadWithYtDlp(url, platform) {
         for (const name of fs.readdirSync(__dirname)) {
             const file = path.join(__dirname, name);
             if (file.startsWith(prefix)) fs.rmSync(file, { force: true });
+        }
+
+        const rawMsg = error.stderr || error.message || '';
+        if (attempt < MAX_ATTEMPTS && isYtDlpTransientError(rawMsg)) {
+            const delayMs = attempt * 3000; // 3s, 6s
+            console.log(`[${platform}] yt-dlp transient error (attempt ${attempt}/${MAX_ATTEMPTS}); retrying in ${delayMs}ms`);
+            await sleep(delayMs);
+            return downloadWithYtDlp(url, platform, attempt + 1);
         }
         throw error;
     }
@@ -3169,6 +3316,29 @@ bot.on('polling_error', err => console.error('[Polling]', err.message));
 bot.on('webhook_error', err => console.error('[Webhook]', err.message));
 process.on('unhandledRejection', err => console.error('[Unhandled]', err?.message || err));
 process.on('uncaughtException',  err => { console.error('[Uncaught]', err?.message || err); });
+
+// ============================================================
+// 🛑 GRACEFUL SHUTDOWN
+// Render gửi SIGTERM cho instance cũ khi deploy bản mới. Nếu không
+// dừng polling ở đây, instance cũ vẫn giữ getUpdates() và gây lỗi
+// "409 Conflict: terminated by other getUpdates request" cho instance mới.
+// ============================================================
+let shuttingDown = false;
+async function gracefulShutdown(signal) {
+    if (shuttingDown) return;
+    shuttingDown = true;
+    console.log(`\n🛑 Nhận tín hiệu ${signal}, đang dừng polling...`);
+    try {
+        await bot.stopPolling();
+        console.log('✅ Đã dừng polling, thoát an toàn.');
+    } catch (e) {
+        console.error('⚠️  Lỗi khi dừng polling:', e.message);
+    } finally {
+        process.exit(0);
+    }
+}
+process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
+process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 console.log(`🚀 Nobita Bot v${BOT_VERSION} is running!`);
 console.log(`👑 Admin ID:    ${ADMIN_USER_ID}`);
