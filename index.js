@@ -934,6 +934,47 @@ function isTikTokPhotoUrl(url) {
 
 const TIKTOK_WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+async function fetchTikTokMobileApi(url) {
+    const videoId = url.match(/\/(?:video|v)\/(\d+)/)?.[1] || url.match(/[?&](?:item_id|modal_id)=(\d+)/)?.[1];
+    if (!videoId) throw new Error('TikTok mobile API: video ID not found');
+
+    const hosts = [
+        'https://api16-normal-c-useast1a.tiktokv.com',
+        'https://api16-normal-useast5.us.tiktokv.com',
+        'https://api22-normal-c-useast1a.tiktokv.com',
+    ];
+    let lastError;
+
+    for (const host of hosts) {
+        try {
+            const res = await axios.get(`${host}/aweme/v1/feed/`, {
+                params: { aweme_id: videoId },
+                timeout: 15000,
+                headers: {
+                    'User-Agent': 'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 13; en_US; Pixel 7; Build/TQ3A.230805.001; Cronet/TTNetVersion:5f9640e5 2023-08-01 QuicVersion:47946d2a 2023-06-30)',
+                    'Accept': 'application/json',
+                },
+            });
+            const item = res.data?.aweme_list?.[0] || res.data?.item_list?.[0];
+            const video = item?.video;
+            const videoUrl = video?.download_addr?.url_list?.[0]
+                || video?.play_addr?.url_list?.[0]
+                || video?.play_addr_h264?.url_list?.[0];
+            if (videoUrl) {
+                return {
+                    url: videoUrl,
+                    title: item?.desc || 'TikTok Video',
+                    author: item?.author?.unique_id || item?.author?.nickname,
+                };
+            }
+            lastError = new Error(`TikTok mobile API ${host}: no media`);
+        } catch (error) {
+            lastError = error;
+        }
+    }
+    throw lastError || new Error('TikTok mobile API unavailable');
+}
+
 async function fetchTikWm(url) {
     const form = new URLSearchParams({ url, hd: '1' });
     const attempts = [
@@ -1003,7 +1044,9 @@ async function getVideoNoWatermark(url) {
     const normalizedUrl = await normalizeUrl(url);
 
     const apis = [
-        // 1. TikWM
+        // 1. TikTok mobile feed API
+        async () => fetchTikTokMobileApi(normalizedUrl),
+        // 2. TikWM
         async () => {
             const d = await fetchTikWm(normalizedUrl);
             if (d.images?.length) return { isSlideshow: true, images: d.images, music: d.music, title: d.title };
@@ -1049,12 +1092,14 @@ async function getVideoNoWatermark(url) {
         },
     ];
 
-    for (const api of apis) {
+    for (const [index, api] of apis.entries()) {
         try {
             const result = await retryWithBackoff(api);
             if (result?.url)         { const sz = await checkVideoSize(result.url); return { ...result, ...sz }; }
             if (result?.isSlideshow) return result;
-        } catch (_) {}
+        } catch (error) {
+            console.log(`[TikTok] Native API #${index + 1} failed: ${error?.response?.status || ''} ${error.message}`.trim());
+        }
     }
     return null;
 }
