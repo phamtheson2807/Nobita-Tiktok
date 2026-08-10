@@ -932,15 +932,57 @@ function isTikTokPhotoUrl(url) {
     return /\/(?:photo|image|note)\/\d+|modal_id=\d+|item_id=\d+/.test(url);
 }
 
+const TIKTOK_WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
+
+async function fetchTikWm(url) {
+    const form = new URLSearchParams({ url, hd: '1' });
+    const attempts = [
+        () => axios.post('https://www.tikwm.com/api/', form.toString(), {
+            timeout: 20000,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': TIKTOK_WEB_UA,
+                'Accept': 'application/json, text/plain, */*',
+                'Origin': 'https://www.tikwm.com',
+                'Referer': 'https://www.tikwm.com/',
+            },
+        }),
+        () => axios.get('https://www.tikwm.com/api/', {
+            params: { url, hd: 1 },
+            timeout: 20000,
+            headers: { 'User-Agent': TIKTOK_WEB_UA, 'Accept': 'application/json, text/plain, */*' },
+        }),
+        () => axios.post('https://tikwm.com/api/', form.toString(), {
+            timeout: 20000,
+            headers: {
+                'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+                'User-Agent': TIKTOK_WEB_UA,
+                'Accept': 'application/json, text/plain, */*',
+            },
+        }),
+    ];
+
+    let lastError;
+    for (const request of attempts) {
+        try {
+            const res = await request();
+            const data = res.data?.data;
+            if (res.data?.code === 0 && data && (data.hdplay || data.play || data.images?.length)) return data;
+            lastError = new Error(`TikWM response code ${res.data?.code ?? 'unknown'}: ${res.data?.msg || 'no media'}`);
+        } catch (error) {
+            lastError = error;
+        }
+        await sleep(700);
+    }
+    throw lastError || new Error('TikWM unavailable');
+}
+
 async function downloadTikTokPhoto(url) {
     const normalizedUrl = await normalizeUrl(url);
     for (const strategy of [
         async () => {
-            const res = await axios.post('https://www.tikwm.com/api/', { url: normalizedUrl, hd: 1 }, {
-                timeout: 15000, headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-            });
-            if (res.data?.code === 0 && res.data.data?.images?.length > 0) {
-                const d = res.data.data;
+            const d = await fetchTikWm(normalizedUrl);
+            if (d.images?.length > 0) {
                 return { isSlideshow: true, images: d.images, music: d.music, title: d.title || 'TikTok Photo', imageCount: d.images.length };
             }
             throw new Error('TikWM no photos');
@@ -963,14 +1005,9 @@ async function getVideoNoWatermark(url) {
     const apis = [
         // 1. TikWM
         async () => {
-            const res = await axios.post('https://www.tikwm.com/api/', { url: normalizedUrl, hd: 1 }, {
-                timeout: 15000, headers: { 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
-            });
-            if (res.data?.code === 0) {
-                const d = res.data.data;
-                if (d.images?.length) return { isSlideshow: true, images: d.images, music: d.music, title: d.title };
-                if (d.play || d.hdplay) return { url: d.hdplay || d.play, title: d.title };
-            }
+            const d = await fetchTikWm(normalizedUrl);
+            if (d.images?.length) return { isSlideshow: true, images: d.images, music: d.music, title: d.title };
+            if (d.play || d.hdplay) return { url: d.hdplay || d.play, title: d.title };
             throw new Error('TikWM failed');
         },
         // 2. SSSTik
