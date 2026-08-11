@@ -963,7 +963,7 @@ async function downloadFacebookVideo(fbUrl) {
         async () => {
             const res = await axios.post('https://snapsave.app/action.php',
                 new URLSearchParams({ url: realUrl }),
-                { timeout: 20000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': 'https://snapsave.app/', 'Origin': 'https://snapsave.app' } }
+                { timeout: 7000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'Referer': 'https://snapsave.app/', 'Origin': 'https://snapsave.app' } }
             );
             let html = res.data;
             if (typeof html === 'string' && html.includes('eval(function(p,a,c,k,e,d)')) {
@@ -982,7 +982,7 @@ async function downloadFacebookVideo(fbUrl) {
         async () => {
             const res = await axios.post('https://api.cobalt.tools/',
                 { url: realUrl, videoQuality: '1080', isAudioOnly: false },
-                { timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': HB['User-Agent'] } }
+                { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': HB['User-Agent'] } }
             );
             const d = res.data;
             if (d?.url) return { url: d.url, title: d.filename || 'Facebook Video' };
@@ -993,7 +993,7 @@ async function downloadFacebookVideo(fbUrl) {
         async () => {
             const res = await axios.post('https://getmyfb.com/api/ajaxSearch',
                 new URLSearchParams({ q: realUrl, t: 'media', lang: 'en' }),
-                { timeout: 15000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'Referer': 'https://getmyfb.com/' } }
+                { timeout: 7000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'Referer': 'https://getmyfb.com/' } }
             );
             const html   = res.data?.data || res.data || '';
             const hdUrl  = html.match(/href="([^"]+)"[^>]*>\s*Download HD/i)?.[1];
@@ -1005,7 +1005,7 @@ async function downloadFacebookVideo(fbUrl) {
         // 4. SaveFrom
         async () => {
             const res = await axios.get('https://savefrom.net/api/convert', {
-                params: { url: realUrl, lang: 'en' }, timeout: 15000,
+                params: { url: realUrl, lang: 'en' }, timeout: 7000,
                 headers: { ...HB, 'Referer': 'https://savefrom.net/' },
             });
             const data = Array.isArray(res.data) ? res.data
@@ -1019,7 +1019,7 @@ async function downloadFacebookVideo(fbUrl) {
         async () => {
             const res = await axios.post('https://fbdownloader.net/api/ajaxSearch',
                 new URLSearchParams({ q: realUrl, t: 'home', lang: 'en' }),
-                { timeout: 15000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'Referer': 'https://fbdownloader.net/' } }
+                { timeout: 7000, headers: { ...HB, 'Content-Type': 'application/x-www-form-urlencoded', 'X-Requested-With': 'XMLHttpRequest', 'Referer': 'https://fbdownloader.net/' } }
             );
             const html   = res.data?.data || '';
             const hdUrl  = html.match(/href="([^"]+)"[^>]*>\s*Download HD/i)?.[1];
@@ -1031,7 +1031,7 @@ async function downloadFacebookVideo(fbUrl) {
         // 6. fdown.net
         async () => {
             const res = await axios.get('https://fdown.net/download.php', {
-                params: { URLz: realUrl }, timeout: 20000,
+                params: { URLz: realUrl }, timeout: 7000,
                 headers: { ...HB, 'Referer': 'https://fdown.net/' },
             });
             const hdUrl  = res.data.match(/id="(?:sdlink|hdlink)"\s+href="([^"]+)"/i)?.[1];
@@ -1088,7 +1088,7 @@ async function validateTikTokVideoUrl(url, strategyNumber) {
 
     const response = await axios.get(url, {
         responseType: 'stream',
-        timeout: 15000,
+        timeout: 7000,
         maxRedirects: 5,
         headers: {
             'User-Agent': TIKTOK_WEB_UA,
@@ -1129,7 +1129,7 @@ async function fetchTikTokMobileApi(url) {
         try {
             const res = await axios.get(`${host}/aweme/v1/feed/`, {
                 params: { aweme_id: videoId },
-                timeout: 15000,
+                timeout: 6000,
                 headers: {
                     'User-Agent': 'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 13; en_US; Pixel 7; Build/TQ3A.230805.001; Cronet/TTNetVersion:5f9640e5 2023-08-01 QuicVersion:47946d2a 2023-06-30)',
                     'Accept': 'application/json',
@@ -1159,7 +1159,7 @@ async function fetchTikWm(url) {
     const form = new URLSearchParams({ url, hd: '1' });
     const attempts = [
         () => axios.post('https://www.tikwm.com/api/', form.toString(), {
-            timeout: 20000,
+            timeout: 7000,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'User-Agent': TIKTOK_WEB_UA,
@@ -1170,11 +1170,11 @@ async function fetchTikWm(url) {
         }),
         () => axios.get('https://www.tikwm.com/api/', {
             params: { url, hd: 1 },
-            timeout: 20000,
+            timeout: 7000,
             headers: { 'User-Agent': TIKTOK_WEB_UA, 'Accept': 'application/json, text/plain, */*' },
         }),
         () => axios.post('https://tikwm.com/api/', form.toString(), {
-            timeout: 20000,
+            timeout: 7000,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'User-Agent': TIKTOK_WEB_UA,
@@ -1237,7 +1237,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://ssstik.io/abc?url=dl',
                 `id=${encodeURIComponent(normalizedUrl)}&locale=en&tt=d1N4eUs5`,
-                { timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
             );
             const m = res.data.match(/<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?no watermark/i);
             if (m) return { url: m[1], title: 'TikTok Video' };
@@ -1246,7 +1246,7 @@ async function getVideoNoWatermark(url) {
         // 3. SnapTik
         async () => {
             const res = await axios.get('https://snaptikvideo.com/tikwm.php', {
-                params: { url: normalizedUrl, hd: 1 }, timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+                params: { url: normalizedUrl, hd: 1 }, timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0' },
             });
             if (res.data?.url) return { url: res.data.url, title: 'TikTok Video' };
             throw new Error('SnapTik failed');
@@ -1255,7 +1255,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://api.tikmate.app/api/lookup',
                 new URLSearchParams({ url: normalizedUrl }),
-                { timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.token && res.data?.id)
                 return { url: `https://tikmate.app/download/${res.data.token}/${res.data.id}.mp4`, title: 'TikTok Video' };
@@ -1265,7 +1265,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://api.cobalt.tools/',
                 { url: normalizedUrl, videoQuality: '1080', isAudioOnly: false, downloadMode: 'auto' },
-                { timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.url) return { url: res.data.url, title: 'TikTok Video' };
             throw new Error('Cobalt TikTok failed');
@@ -1274,7 +1274,7 @@ async function getVideoNoWatermark(url) {
 
     for (const [index, api] of apis.entries()) {
         try {
-            const result = await retryWithBackoff(api);
+            const result = await api();
             if (result?.url) {
                 const videoUrl = await validateTikTokVideoUrl(result.url, index + 1);
                 const sz = await checkVideoSize(videoUrl);
@@ -1375,7 +1375,7 @@ async function downloadYouTubeVideo(url) {
         if (vidId) {
             const res = await axios.post('https://www.y2mate.com/mates/analyzeV2/ajax',
                 new URLSearchParams({ k_query: `https://www.youtube.com/watch?v=${vidId}`, k_page: 'home', hl: 'en', q_auto: '0' }),
-                { timeout: 20000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.y2mate.com/' } }
+                { timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.y2mate.com/' } }
             );
             const links = res.data?.links?.mp4;
             if (links) {
@@ -1383,7 +1383,7 @@ async function downloadYouTubeVideo(url) {
                 if (best?.k) {
                     const res2 = await axios.post('https://www.y2mate.com/mates/convertV2/index',
                         new URLSearchParams({ vid: vidId, k: best.k }),
-                        { timeout: 20000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.y2mate.com/' } }
+                        { timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://www.y2mate.com/' } }
                     );
                     if (res2.data?.dlink) {
                         const sz = await checkVideoSize(res2.data.dlink);
@@ -1397,7 +1397,7 @@ async function downloadYouTubeVideo(url) {
     // ── Strategy 4: 9xbuddy ───────────────────────────────────
     try {
         const res = await axios.get(`https://9xbuddy.in/process?url=${encodeURIComponent(url)}`, {
-            timeout: 20000, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
+            timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0', 'Accept': 'application/json' },
         });
         const formats = res.data?.formats || res.data?.data?.formats || [];
         const mp4 = formats.filter(f => f.extension === 'mp4' && f.url).sort((a, b) => (parseInt(b.quality) || 0) - (parseInt(a.quality) || 0))[0];
@@ -1430,7 +1430,7 @@ async function downloadYouTubeAudio(url) {
         try {
             const { stdout } = await execFA(ytdlpPath, [
                 '--dump-single-json', '--no-warnings', '--no-check-certificates', url,
-            ], { timeout: 15000, maxBuffer: 5 * 1024 * 1024 });
+            ], { timeout: 7000, maxBuffer: 5 * 1024 * 1024 });
             info = JSON.parse(stdout);
         } catch (_) {}
 
@@ -1450,7 +1450,7 @@ async function downloadYouTubeAudio(url) {
     try {
         const res = await axios.post('https://api.cobalt.tools/',
             { url, isAudioOnly: true, aFormat: 'mp3' },
-            { timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+            { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
         );
         if (res.data?.url) return { isAudio: true, url: res.data.url, title: 'YouTube Audio', sizeMB: 0, isTooLarge: false };
     } catch (e) { console.log('[YT-MP3] Cobalt failed:', e.message); }
@@ -1466,7 +1466,7 @@ async function downloadInstagramVideo(url) {
         // 1. SnapInsta
         async () => {
             const res = await axios.post('https://snapinsta.app/action.php', new URLSearchParams({ url }), {
-                timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://snapinsta.app/' },
+                timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://snapinsta.app/' },
             });
             const m = res.data.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/i);
             if (m) return { url: m[1], title: 'Instagram Video' };
@@ -1475,7 +1475,7 @@ async function downloadInstagramVideo(url) {
         // 2. SSSInsta
         async () => {
             const res = await axios.post('https://sssinsta.com/action.php', new URLSearchParams({ url }), {
-                timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://sssinsta.com/' },
+                timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0', 'Referer': 'https://sssinsta.com/' },
             });
             const m = res.data.match(/href="(https:\/\/[^"]+\.mp4[^"]*)"/i);
             if (m) return { url: m[1], title: 'Instagram Video' };
@@ -1484,7 +1484,7 @@ async function downloadInstagramVideo(url) {
         // 3. IGram
         async () => {
             const res = await axios.get(`https://igram.world/api/convert?url=${encodeURIComponent(url)}`, {
-                timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0' },
             });
             if (res.data?.url) return { url: res.data.url, title: 'Instagram Video' };
             throw new Error('IGram failed');
@@ -1493,7 +1493,7 @@ async function downloadInstagramVideo(url) {
         async () => {
             const res = await axios.post('https://api.cobalt.tools/',
                 { url, videoQuality: '1080' },
-                { timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.url) return { url: res.data.url, title: 'Instagram Video' };
             throw new Error('Cobalt Instagram failed');
@@ -1525,7 +1525,7 @@ async function downloadTwitterVideo(url) {
         // 1. TwitSave
         async () => {
             const res = await axios.get(`https://twitsave.com/info?url=${encodeURIComponent(url)}`, {
-                timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+                timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0' },
             });
             const m = res.data.match(/href="(https:\/\/video\.twimg\.com[^"]+)"/i);
             if (m) return { url: m[1], title: 'Twitter Video' };
@@ -1535,7 +1535,7 @@ async function downloadTwitterVideo(url) {
         async () => {
             const res = await axios.post('https://www.savetweetvid.com/downloader',
                 new URLSearchParams({ url }),
-                { timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
             );
             const m = res.data.match(/href="(https:\/\/video\.twimg\.com[^"]+\.mp4[^"]*)"/i);
             if (m) return { url: m[1], title: 'Twitter Video' };
@@ -1544,7 +1544,7 @@ async function downloadTwitterVideo(url) {
         // 3. Cobalt
         async () => {
             const res = await axios.post('https://api.cobalt.tools/', { url }, {
-                timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+                timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
             });
             if (res.data?.url) return { url: res.data.url, title: 'Twitter Video' };
             throw new Error('Cobalt Twitter failed');
@@ -1575,7 +1575,7 @@ async function downloadRedditVideo(url) {
     try {
         const apiUrl = url.replace(/\/$/, '') + '.json';
         const res    = await axios.get(apiUrl, {
-            timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NobitaBot/4.2)' },
+            timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NobitaBot/4.2)' },
         });
         const post     = res.data?.[0]?.data?.children?.[0]?.data;
         const videoUrl = post?.secure_media?.reddit_video?.fallback_url || post?.media?.reddit_video?.fallback_url;
@@ -1596,7 +1596,7 @@ async function downloadRedditVideo(url) {
     // Strategy 3: Cobalt
     try {
         const res = await axios.post('https://api.cobalt.tools/', { url }, {
-            timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: 'Reddit Video', ...sz }; }
     } catch (e) { console.log('[Reddit] Cobalt failed:', e.message); }
@@ -1611,7 +1611,7 @@ async function downloadBilibiliVideo(url) {
     // Strategy 1: injahow API
     try {
         const res = await axios.get(`https://api.injahow.cn/bparse/?url=${encodeURIComponent(url)}&type=json`, {
-            timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: res.data.title || 'Bilibili Video', ...sz }; }
     } catch (e) { console.log('[Bilibili] injahow failed:', e.message); }
@@ -1619,7 +1619,7 @@ async function downloadBilibiliVideo(url) {
     // Strategy 2: Cobalt
     try {
         const res = await axios.post('https://api.cobalt.tools/', { url, videoQuality: '1080' }, {
-            timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: 'Bilibili Video', ...sz }; }
     } catch (e) { console.log('[Bilibili] Cobalt failed:', e.message); }
@@ -1667,7 +1667,7 @@ async function downloadPinterestMedia(url) {
     };
 
     const s2 = async () => {
-        const r = await axios.get(url, { timeout: 15000, headers: { ...H, Accept: 'text/html' }, maxRedirects: 10 });
+        const r = await axios.get(url, { timeout: 7000, headers: { ...H, Accept: 'text/html' }, maxRedirects: 10 });
         const html = r.data || '';
         const vm = html.match(/"url"\s*:\s*"(https:\/\/v\.pinimg\.com\/[^"]+\.mp4[^"]*)"/);
         if (vm) return { url: vm[1].replace(/\\u002F/g, '/'), title: 'Pinterest Video', isImage: false };
@@ -1696,7 +1696,7 @@ async function downloadPinterestMedia(url) {
     const s4 = async () => {
         const r = await axios.post('https://api.cobalt.tools/',
             { url, videoQuality: '1080' },
-            { timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': UA } }
+            { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': UA } }
         );
         if (r.data?.url) return { url: r.data.url, title: 'Pinterest Video', isImage: false };
         throw new Error('Cobalt no result');
@@ -1721,7 +1721,7 @@ async function downloadSnapchatVideo(url) {
     // Strategy 1: Cobalt
     try {
         const res = await axios.post('https://api.cobalt.tools/', { url }, {
-            timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: 'Snapchat Video', ...sz }; }
     } catch (e) { console.log('[Snapchat] Cobalt failed:', e.message); }
@@ -1751,7 +1751,7 @@ async function downloadSoundCloudAudio(url) {
 
         let info;
         try {
-            const { stdout } = await execFA(ytdlpPath, ['--dump-single-json', '--no-warnings', '--no-check-certificates', url], { timeout: 15000, maxBuffer: 5 * 1024 * 1024 });
+            const { stdout } = await execFA(ytdlpPath, ['--dump-single-json', '--no-warnings', '--no-check-certificates', url], { timeout: 7000, maxBuffer: 5 * 1024 * 1024 });
             info = JSON.parse(stdout);
         } catch (_) {}
 
@@ -1770,7 +1770,7 @@ async function downloadSoundCloudAudio(url) {
     // Strategy 2: Cobalt
     try {
         const res = await axios.post('https://api.cobalt.tools/', { url, isAudioOnly: true }, {
-            timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) return { isAudio: true, url: res.data.url, title: 'SoundCloud Audio', sizeMB: 0, isTooLarge: false };
     } catch (e) { console.log('[SC] Cobalt failed:', e.message); }
@@ -1792,7 +1792,7 @@ async function downloadVimeoVideo(url) {
 
         const { stdout } = await execFA(ytdlpPath, [
             '--dump-single-json', '--no-warnings', '--no-check-certificates', url,
-        ], { timeout: 15000, maxBuffer: 5 * 1024 * 1024 });
+        ], { timeout: 7000, maxBuffer: 5 * 1024 * 1024 });
         const info = JSON.parse(stdout);
         if (info.duration > 600) throw new Error('Video quá dài (chỉ hỗ trợ dưới 10 phút)');
 
@@ -1811,7 +1811,7 @@ async function downloadVimeoVideo(url) {
     // Strategy 2: Cobalt
     try {
         const res = await axios.post('https://api.cobalt.tools/', { url, videoQuality: '720' }, {
-            timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: 'Vimeo Video', ...sz }; }
     } catch (e) { console.log('[Vimeo] Cobalt failed:', e.message); }
@@ -1827,7 +1827,7 @@ async function downloadDailymotionVideo(url) {
         const vidId = url.match(/dailymotion\.com\/video\/([\w]+)/)?.[1];
         if (!vidId) throw new Error('No video ID');
         const res = await axios.get(`https://www.dailymotion.com/player/metadata/video/${vidId}`, {
-            timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+            timeout: 7000, headers: { 'User-Agent': 'Mozilla/5.0' },
         });
         const qualities = res.data?.qualities?.auto || res.data?.qualities?.['1080'] || res.data?.qualities?.['720'] || [];
         const best = Array.isArray(qualities) ? qualities[0] : null;
@@ -2781,7 +2781,7 @@ bot.on('callback_query', async (query) => {
             // Generic: Cobalt audio
             const cobaltRes = await axios.post('https://api.cobalt.tools/',
                 { url: info.url, isAudioOnly: true, aFormat: 'mp3' },
-                { timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 7000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (cobaltRes.data?.url) {
                 const tmpAudio = path.join(__dirname, `mp3cb_${Date.now()}.mp3`);
