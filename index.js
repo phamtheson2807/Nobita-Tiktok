@@ -1081,6 +1081,39 @@ function isTikTokPhotoUrl(url) {
 
 const TIKTOK_WEB_UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
+async function validateTikTokVideoUrl(url, strategyNumber) {
+    if (!url || /\.mp3(?:$|[?#&])/i.test(url)) {
+        throw new Error(`TikTok API #${strategyNumber}: audio URL rejected`);
+    }
+
+    const response = await axios.get(url, {
+        responseType: 'stream',
+        timeout: 15000,
+        maxRedirects: 5,
+        headers: {
+            'User-Agent': TIKTOK_WEB_UA,
+            'Range': 'bytes=0-1023',
+            'Accept': 'video/mp4,video/*;q=0.9,*/*;q=0.1',
+        },
+        validateStatus: status => status >= 200 && status < 400,
+    });
+
+    const contentType = String(response.headers['content-type'] || '').toLowerCase();
+    const disposition = String(response.headers['content-disposition'] || '').toLowerCase();
+    response.data?.destroy?.();
+
+    console.log(`[TikTok] API #${strategyNumber} media type: ${contentType || 'unknown'}`);
+
+    if (contentType.startsWith('audio/') || /\.mp3(?:["'; ]|$)/i.test(disposition)) {
+        throw new Error(`TikTok API #${strategyNumber}: audio response rejected (${contentType || 'unknown'})`);
+    }
+    if (contentType && !contentType.startsWith('video/') && contentType !== 'application/octet-stream') {
+        throw new Error(`TikTok API #${strategyNumber}: non-video response rejected (${contentType})`);
+    }
+
+    return url;
+}
+
 async function fetchTikTokMobileApi(url) {
     const videoId = url.match(/\/(?:video|v)\/(\d+)/)?.[1] || url.match(/[?&](?:item_id|modal_id)=(\d+)/)?.[1];
     if (!videoId) throw new Error('TikTok mobile API: video ID not found');
@@ -1104,9 +1137,9 @@ async function fetchTikTokMobileApi(url) {
             });
             const item = res.data?.aweme_list?.[0] || res.data?.item_list?.[0];
             const video = item?.video;
-            const videoUrl = video?.download_addr?.url_list?.[0]
+            const videoUrl = video?.play_addr_h264?.url_list?.[0]
                 || video?.play_addr?.url_list?.[0]
-                || video?.play_addr_h264?.url_list?.[0];
+                || video?.download_addr?.url_list?.[0];
             if (videoUrl) {
                 return {
                     url: videoUrl,
@@ -1231,7 +1264,7 @@ async function getVideoNoWatermark(url) {
         // 5. Cobalt fallback
         async () => {
             const res = await axios.post('https://api.cobalt.tools/',
-                { url: normalizedUrl, videoQuality: '1080' },
+                { url: normalizedUrl, videoQuality: '1080', isAudioOnly: false, downloadMode: 'auto' },
                 { timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.url) return { url: res.data.url, title: 'TikTok Video' };
@@ -1242,7 +1275,11 @@ async function getVideoNoWatermark(url) {
     for (const [index, api] of apis.entries()) {
         try {
             const result = await retryWithBackoff(api);
-            if (result?.url)         { const sz = await checkVideoSize(result.url); return { ...result, ...sz }; }
+            if (result?.url) {
+                const videoUrl = await validateTikTokVideoUrl(result.url, index + 1);
+                const sz = await checkVideoSize(videoUrl);
+                return { ...result, url: videoUrl, ...sz };
+            }
             if (result?.isSlideshow) return result;
         } catch (error) {
             console.log(`[TikTok] Native API #${index + 1} failed: ${error?.response?.status || ''} ${error.message}`.trim());
