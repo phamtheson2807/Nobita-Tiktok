@@ -1124,7 +1124,7 @@ async function validateTikTokVideoUrl(url, strategyNumber) {
 
     const response = await axios.get(url, {
         responseType: 'stream',
-        timeout: 15000,
+        timeout: 6000,
         maxRedirects: 5,
         headers: {
             'User-Agent': TIKTOK_WEB_UA,
@@ -1165,7 +1165,7 @@ async function fetchTikTokMobileApi(url) {
         try {
             const res = await axios.get(`${host}/aweme/v1/feed/`, {
                 params: { aweme_id: videoId },
-                timeout: 15000,
+                timeout: 6000,
                 headers: {
                     'User-Agent': 'com.zhiliaoapp.musically/2022600030 (Linux; U; Android 13; en_US; Pixel 7; Build/TQ3A.230805.001; Cronet/TTNetVersion:5f9640e5 2023-08-01 QuicVersion:47946d2a 2023-06-30)',
                     'Accept': 'application/json',
@@ -1195,7 +1195,7 @@ async function fetchTikWm(url) {
     const form = new URLSearchParams({ url, hd: '1' });
     const attempts = [
         () => axios.post('https://www.tikwm.com/api/', form.toString(), {
-            timeout: 20000,
+            timeout: 7000,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'User-Agent': TIKTOK_WEB_UA,
@@ -1206,11 +1206,11 @@ async function fetchTikWm(url) {
         }),
         () => axios.get('https://www.tikwm.com/api/', {
             params: { url, hd: 1 },
-            timeout: 20000,
+            timeout: 7000,
             headers: { 'User-Agent': TIKTOK_WEB_UA, 'Accept': 'application/json, text/plain, */*' },
         }),
         () => axios.post('https://tikwm.com/api/', form.toString(), {
-            timeout: 20000,
+            timeout: 7000,
             headers: {
                 'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
                 'User-Agent': TIKTOK_WEB_UA,
@@ -1273,7 +1273,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://ssstik.io/abc?url=dl',
                 `id=${encodeURIComponent(normalizedUrl)}&locale=en&tt=d1N4eUs5`,
-                { timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 6000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
             );
             const m = res.data.match(/<a[^>]+href="([^"]+)"[^>]*>[\s\S]*?no watermark/i);
             if (m) return { url: m[1], title: 'TikTok Video' };
@@ -1282,7 +1282,7 @@ async function getVideoNoWatermark(url) {
         // 3. SnapTik
         async () => {
             const res = await axios.get('https://snaptikvideo.com/tikwm.php', {
-                params: { url: normalizedUrl, hd: 1 }, timeout: 15000, headers: { 'User-Agent': 'Mozilla/5.0' },
+                params: { url: normalizedUrl, hd: 1 }, timeout: 6000, headers: { 'User-Agent': 'Mozilla/5.0' },
             });
             if (res.data?.url) return { url: res.data.url, title: 'TikTok Video' };
             throw new Error('SnapTik failed');
@@ -1291,7 +1291,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://api.tikmate.app/api/lookup',
                 new URLSearchParams({ url: normalizedUrl }),
-                { timeout: 15000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 6000, headers: { 'Content-Type': 'application/x-www-form-urlencoded', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.token && res.data?.id)
                 return { url: `https://tikmate.app/download/${res.data.token}/${res.data.id}.mp4`, title: 'TikTok Video' };
@@ -1301,7 +1301,7 @@ async function getVideoNoWatermark(url) {
         async () => {
             const res = await axios.post('https://api.cobalt.tools/',
                 { url: normalizedUrl, videoQuality: '1080', isAudioOnly: false, downloadMode: 'auto' },
-                { timeout: 15000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
+                { timeout: 6000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
             );
             if (res.data?.url) return { url: res.data.url, title: 'TikTok Video' };
             throw new Error('Cobalt TikTok failed');
@@ -1310,7 +1310,7 @@ async function getVideoNoWatermark(url) {
 
     for (const [index, api] of apis.entries()) {
         try {
-            const result = await retryWithBackoff(api);
+            const result = await api();
             if (result?.url) {
                 const videoUrl = await validateTikTokVideoUrl(result.url, index + 1);
                 const sz = await checkVideoSize(videoUrl);
