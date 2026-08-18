@@ -226,7 +226,7 @@ loadData();
 // ============================================================
 const PLATFORMS = {
     tiktok:         { regex: /(?:https?:\/\/)?(?:(?:www|vt|vm|m|t|v)\.)?(?:tiktok\.com|douyin\.com)\/(?:@[\w.-]+\/(?:video|photo)\/\d+|(?:video|photo)\/\d+|v\/\d+|[\w-]+(?:\/[\w-]+)*(?:\?[^\s]*modal_id=\d+[^\s]*)?|share\/(?:video|photo)\/\d+)|(?:https?:\/\/)?(?:vm|vt|v)\.(?:tiktok\.com|douyin\.com)\/[\w]+/i, emoji: '🎵', name: 'TikTok' },
-    facebook:       { regex: /(?:https?:\/\/)?(?:www\.|m\.|web\.)?(?:facebook\.com|fb\.com)\/(?:[\w.-]+\/videos\/[\d]+|watch[\/?].*v=[\d]+|video\.php\?v=[\d]+|reel\/[\w]+|share\/v\/[\w]+|share\/r\/[\w]+|share\/[\w]+|[\w.-]+\/posts\/[\w]+)|(?:https?:\/\/)?fb\.watch\/[\w]+/i, emoji: '🐙', name: 'Facebook' },
+    facebook:       { regex: /(?:https?:\/\/)?(?:(?:www|m|web|mbasic)\.)?(?:facebook\.com|fb\.com)\/(?:[\w.-]+\/videos\/[\d]+|watch[\/?][^\s]*v=[\d]+|video\.php\?[^\s]*v=[\d]+|reels?\/[\w.-]+|share\/(?:v|r|p)\/[\w.-]+|share\/[\w.-]+|[\w.-]+\/(?:posts|videos)\/[\w.-]+)(?:\?[^\s]*)?|(?:https?:\/\/)?fb\.watch\/[\w.-]+(?:\?[^\s]*)?/i, emoji: '🐙', name: 'Facebook' },
     youtube:        { regex: /(?:https?:\/\/)?(?:www\.)?(?:youtube\.com\/(?:shorts\/|watch\?v=|embed\/|v\/)|youtu\.be\/)[\w-]+(?:\?[^\s]*)?/i, emoji: '▶️', name: 'YouTube' },
     instagram:      { regex: /(?:https?:\/\/)?(?:www\.)?instagram\.com\/(?:reel|p|tv)\/[\w-]+/i, emoji: '📸', name: 'Instagram' },
     twitter:        { regex: /(?:https?:\/\/)?(?:www\.)?(?:twitter\.com|x\.com)\/[\w]+\/status\/[\d]+/i, emoji: '🐦', name: 'Twitter/X' },
@@ -894,22 +894,58 @@ async function downloadFacebookDirect(fbUrl) {
     const fileId = `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const outputTemplate = path.join(__dirname, `${fileId}.%(ext)s`);
 
+    const commonOptions = {
+        mergeOutputFormat: 'mp4',
+        noPlaylist: true,
+        noWarnings: true,
+        noCheckCertificates: true,
+        retries: 3,
+        fragmentRetries: 3,
+        socketTimeout: 30,
+        addHeader: [
+            'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
+            'Accept-Language:en-US,en;q=0.9',
+            'Referer:https://www.facebook.com/',
+        ],
+    };
+
+    // A cookies.txt exported from a logged-in Facebook session is optional but
+    // lets Render download age/region/login-gated videos without hard-coding it.
+    if (process.env.FACEBOOK_COOKIES_FILE && fs.existsSync(process.env.FACEBOOK_COOKIES_FILE)) {
+        commonOptions.cookies = process.env.FACEBOOK_COOKIES_FILE;
+    }
+
     try {
-        await ytdl(fbUrl, {
-            output: outputTemplate,
-            format: 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
-            mergeOutputFormat: 'mp4',
-            noPlaylist: true,
-            noWarnings: true,
-            noCheckCertificates: true,
-            retries: 3,
-            fragmentRetries: 3,
-            socketTimeout: 30,
-            addHeader: [
-                'User-Agent:Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/124.0.0.0 Safari/537.36',
-                'Accept-Language:en-US,en;q=0.9',
-            ],
-        });
+        let info = null;
+        try {
+            info = await ytdl(fbUrl, { ...commonOptions, dumpSingleJson: true });
+            if (info?.duration && info.duration > 600) {
+                throw new Error('Video quá dài (chỉ hỗ trợ dưới 10 phút)');
+            }
+        } catch (error) {
+            if (error.message?.includes('quá dài')) throw error;
+            console.log(`[FB] Metadata unavailable, continuing download: ${error.message}`);
+        }
+
+        // Facebook exposes different format sets per post. Try a progressive MP4
+        // first, then DASH video+audio, and finally yt-dlp's best available format.
+        const selectors = [
+            'best[ext=mp4][height<=720][acodec!=none]/best[height<=720][acodec!=none]',
+            'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio',
+            'best[height<=720]/best',
+        ];
+        let lastError;
+        for (const format of selectors) {
+            try {
+                await ytdl(fbUrl, { ...commonOptions, output: outputTemplate, format });
+                lastError = null;
+                break;
+            } catch (error) {
+                lastError = error;
+                console.log(`[FB] Format selector failed (${format}): ${error.message}`);
+            }
+        }
+        if (lastError) throw lastError;
 
         const localPath = fs.readdirSync(__dirname)
             .filter(name => name.startsWith(fileId + '.'))
@@ -923,7 +959,7 @@ async function downloadFacebookDirect(fbUrl) {
             isLocal: true,
             localPath,
             url: fbUrl,
-            title: 'Facebook Video',
+            title: info?.title || 'Facebook Video',
             sizeMB,
             isTooLarge: sizeMB > TG_MAX_UPLOAD_MB,
         };
@@ -2126,7 +2162,12 @@ async function processQueue() {
                 if (videoData.isLocal && videoData.localPath) {
                     fs.renameSync(videoData.localPath, tempFile);
                 } else {
-                    await downloadToFile(videoData.url, tempFile, { 'Referer': 'https://www.tiktok.com/' });
+                    const referer = req.platform === 'facebook'
+                        ? 'https://www.facebook.com/'
+                        : req.platform === 'instagram'
+                            ? 'https://www.instagram.com/'
+                            : 'https://www.tiktok.com/';
+                    await downloadToFile(videoData.url, tempFile, { 'Referer': referer });
                 }
 
                 const actualSize = fs.statSync(tempFile).size / 1024 / 1024;
