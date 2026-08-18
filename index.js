@@ -758,12 +758,10 @@ async function smartSendFile(chatId, filePath, opts = {}) {
         }
     }
     if (isVideo) {
-        try {
-            return await bot.sendVideo(chatId, filePath, { ...baseOpts, supports_streaming: true });
-        } catch (e) {
-            console.warn('[smartSendFile] sendVideo failed, fallback to sendDocument:', e.message);
-            return bot.sendDocument(chatId, filePath, baseOpts);
-        }
+        // Do not automatically retry as a document. Telegram can accept the
+        // video and then time out on the client side; retrying would create a
+        // second message that looks like a detached thumbnail/cover image.
+        return bot.sendVideo(chatId, filePath, { ...baseOpts, supports_streaming: true });
     }
     return bot.sendDocument(chatId, filePath, baseOpts);
 }
@@ -889,7 +887,7 @@ async function normalizeFbUrl(fbUrl) {
     return fbUrl;
 }
 
-async function downloadFacebookDirect(fbUrl) {
+async function downloadFacebookDirect(fbUrl, progressCb = () => {}) {
     const ytdl = await getYtDlExec();
     const fileId = `fb_${Date.now()}_${Math.random().toString(36).slice(2)}`;
     const outputTemplate = path.join(__dirname, `${fileId}.%(ext)s`);
@@ -918,6 +916,7 @@ async function downloadFacebookDirect(fbUrl) {
     try {
         let info = null;
         try {
+            progressCb(15, 'Đang đọc thông tin video');
             info = await ytdl(fbUrl, { ...commonOptions, dumpSingleJson: true });
             if (info?.duration && info.duration > 600) {
                 throw new Error('Video quá dài (chỉ hỗ trợ dưới 10 phút)');
@@ -935,8 +934,10 @@ async function downloadFacebookDirect(fbUrl) {
             'best[height<=720]/best',
         ];
         let lastError;
-        for (const format of selectors) {
+        for (let i = 0; i < selectors.length; i++) {
+            const format = selectors[i];
             try {
+                progressCb(35 + i * 12, `Đang tải luồng video ${i + 1}/${selectors.length}`);
                 await ytdl(fbUrl, { ...commonOptions, output: outputTemplate, format });
                 lastError = null;
                 break;
@@ -954,6 +955,7 @@ async function downloadFacebookDirect(fbUrl) {
 
         if (!localPath) throw new Error('yt-dlp không tạo được file Facebook');
 
+        progressCb(82, 'Đang kiểm tra file MP4');
         const sizeMB = fs.statSync(localPath).size / 1024 / 1024;
         return {
             isLocal: true,
@@ -973,7 +975,8 @@ async function downloadFacebookDirect(fbUrl) {
     }
 }
 
-async function downloadFacebookVideo(fbUrl) {
+async function downloadFacebookVideo(fbUrl, progressCb = () => {}) {
+    progressCb(8, 'Đang mở liên kết Facebook');
     const realUrl = await normalizeFbUrl(fbUrl);
     console.log(`[FB] Processing: ${realUrl.substring(0, 80)}`);
 
@@ -981,7 +984,7 @@ async function downloadFacebookVideo(fbUrl) {
     // HTTP 403 when they are extracted by one service and fetched again by Render.
     try {
         console.log('[FB] Trying direct yt-dlp download...');
-        const direct = await retryWithBackoff(() => downloadFacebookDirect(realUrl), 2, 1000);
+        const direct = await retryWithBackoff(() => downloadFacebookDirect(realUrl, progressCb), 2, 1000);
         console.log('[FB] ✅ Direct yt-dlp download succeeded');
         return direct;
     } catch (e) {
@@ -1096,6 +1099,7 @@ async function downloadFacebookVideo(fbUrl) {
 
     for (let i = 0; i < apis.length; i++) {
         try {
+            progressCb(35 + Math.min(i * 6, 42), `Đang thử máy chủ dự phòng ${i + 1}/${apis.length}`);
             console.log(`[FB] Trying API #${i + 1}/${apis.length}...`);
             const result = await retryWithBackoff(apis[i], 2, 800);
             if (result?.url) {
@@ -1987,11 +1991,34 @@ async function processQueue() {
         const p        = PLATFORMS[req.platform];
         const waitLine = botSettings.funMode ? `\n${pickRandom(FUN.waitLines)}` : '';
         procMsg = await bot.sendMessage(req.chatId,
-            `✨ *Đang xử lý:* ${p ? p.emoji + ' ' + p.name : 'Media'}\n` +
-            `━━━━━━━━━━━━━━━━━━━━\n` +
-            `⏳ Vui lòng chờ...${waitLine}`,
+            `╭─ *NOBITA DOWNLOADER*\n` +
+            `│ ${p ? p.emoji + ' *' + p.name + '*' : '🎬 *Media*'}\n` +
+            `│ \`█░░░░░░░░░░░\` 5%\n` +
+            `│ 🔎 Đang phân tích liên kết...${waitLine}\n` +
+            `╰─ _Vui lòng chờ trong giây lát_`,
             { reply_to_message_id: req.messageId, parse_mode: 'Markdown' }
         );
+
+        let lastProgress = 5;
+        const showProgress = (percent, detail) => {
+            const pct = Math.max(lastProgress, Math.min(100, Math.round(percent)));
+            if (pct < 100 && pct - lastProgress < 3) return;
+            lastProgress = pct;
+            const filled = Math.round(pct / 100 * 12);
+            const bar = '█'.repeat(filled) + '░'.repeat(12 - filled);
+            const icon = pct >= 100 ? '✅' : pct >= 85 ? '📤' : pct >= 30 ? '⚙️' : '🔎';
+            const text =
+                `╭─ *NOBITA DOWNLOADER*\n` +
+                `│ ${p ? p.emoji + ' *' + p.name + '*' : '🎬 *Media*'}\n` +
+                `│ \`${bar}\` *${pct}%*\n` +
+                `│ ${icon} ${detail}\n` +
+                `╰─ _${pct >= 100 ? 'Hoàn tất!' : 'Đang xử lý, đừng gửi lại link'}_`;
+            bot.editMessageText(text, {
+                chat_id: req.chatId,
+                message_id: procMsg.message_id,
+                parse_mode: 'Markdown',
+            }).catch(err => console.warn('[Progress]', safeErrorMessage(err)));
+        };
 
         let videoData;
         switch (req.platform) {
@@ -2000,7 +2027,7 @@ async function processQueue() {
                     ? await downloadTikTokPhoto(req.url)
                     : await getVideoNoWatermark(req.url);
                 break;
-            case 'facebook':       videoData = await downloadFacebookVideo(req.url);    break;
+            case 'facebook':       videoData = await downloadFacebookVideo(req.url, showProgress); break;
             case 'youtube':        videoData = await downloadYouTubeVideo(req.url);     break;
             case 'instagram':      videoData = await downloadInstagramVideo(req.url);   break;
             case 'twitter':        videoData = await downloadTwitterVideo(req.url);     break;
@@ -2159,6 +2186,7 @@ async function processQueue() {
             // ── Tải và gửi video ───────────────────────────────
             const tempFile = path.join(__dirname, `temp_${Date.now()}_${Math.random().toString(36).slice(2)}.mp4`);
             try {
+                showProgress(86, 'Đang chuẩn bị video');
                 if (videoData.isLocal && videoData.localPath) {
                     fs.renameSync(videoData.localPath, tempFile);
                 } else {
@@ -2181,11 +2209,13 @@ async function processQueue() {
                     const mp3Id = Math.random().toString(36).slice(2, 10);
                     setCacheWithTtl(mp3Cache, mp3Id, { url: req.url, platform: req.platform }, MP3_CACHE_TTL);
 
+                    showProgress(94, 'Đang gửi video đến bạn');
                     await smartSendFile(req.chatId, tempFile, {
                         isVideo: true,
                         caption: botSettings.captionText,
                         reply_to_message_id: req.messageId,
                     });
+                    showProgress(100, 'Video đã gửi thành công');
 
                     // Nút MP3 (gửi tin nhắn riêng)
                     if (botSettings.mp3Button) {
