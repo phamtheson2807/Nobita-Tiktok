@@ -2353,10 +2353,14 @@ async function sendHelpMessage(chatId, userId) {
 bot.onText(/^\/help(@\w+)?$/, msg => sendHelpMessage(msg.chat.id, msg.from?.id));
 
 bot.onText(/^\/ping$/, async (msg) => {
-    const t = Date.now();
-    const m = await bot.sendMessage(msg.chat.id, '🏓 Pinging...');
-    bot.editMessageText(`🏓 Pong! \`${Date.now() - t}ms\`\n⏱️ Uptime: ${formatUptime(process.uptime() * 1000)}`,
-        { chat_id: msg.chat.id, message_id: m.message_id, parse_mode: 'Markdown' });
+    try {
+        const t = Date.now();
+        const m = await bot.sendMessage(msg.chat.id, '🏓 Pinging...');
+        await bot.editMessageText(`🏓 Pong! \`${Date.now() - t}ms\`\n⏱️ Uptime: ${formatUptime(process.uptime() * 1000)}`,
+            { chat_id: msg.chat.id, message_id: m.message_id, parse_mode: 'Markdown' });
+    } catch (err) {
+        console.error('[Ping]', safeErrorMessage(err));
+    }
 });
 
 bot.onText(/^\/status$/, (msg) => {
@@ -3435,10 +3439,26 @@ if (AUTO_CHAT_ENABLED) {
 // ============================================================
 // 🛑 ERROR HANDLERS
 // ============================================================
-bot.on('polling_error', err => console.error('[Polling]', err.message));
-bot.on('webhook_error', err => console.error('[Webhook]', err.message));
-process.on('unhandledRejection', err => console.error('[Unhandled]', err?.message || err));
-process.on('uncaughtException',  err => { console.error('[Uncaught]', err?.message || err); });
+function safeErrorMessage(err) {
+    let message = err?.response?.body?.description
+        || err?.response?.statusMessage
+        || err?.message
+        || err?.code
+        || String(err || 'Unknown error');
+
+    message = String(message);
+    if (token) message = message.split(token).join('[REDACTED_BOT_TOKEN]');
+    return message
+        .replace(/bot\d+:[A-Za-z0-9_-]+/g, 'bot[REDACTED_BOT_TOKEN]')
+        .replace(/https:\/\/api\.telegram\.org\/bot[^/\s]+/gi, 'https://api.telegram.org/bot[REDACTED]')
+        .slice(0, 500);
+}
+
+bot.on('polling_error', err => console.error('[Polling]', safeErrorMessage(err)));
+bot.on('webhook_error', err => console.error('[Webhook]', safeErrorMessage(err)));
+bot.on('error', err => console.error('[Telegram]', safeErrorMessage(err)));
+process.on('unhandledRejection', err => console.error('[Unhandled]', safeErrorMessage(err)));
+process.on('uncaughtException',  err => console.error('[Uncaught]', safeErrorMessage(err)));
 
 // ============================================================
 // 🛑 GRACEFUL SHUTDOWN
