@@ -829,7 +829,7 @@ async function downloadWithYtDlp(url, platform, attempt = 1) {
 
         await execFA(ytdlpPath, [
             '--no-warnings', '--no-check-certificates', '--no-playlist',
-            '-f', 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+            '-f', 'bestvideo*+bestaudio/best',
             '--merge-output-format', 'mp4',
             '-o', outputTemplate, url,
         ], { timeout: 240000, maxBuffer: 50 * 1024 * 1024 });
@@ -929,16 +929,28 @@ async function downloadFacebookDirect(fbUrl, progressCb = () => {}) {
         // Facebook exposes different format sets per post. Try a progressive MP4
         // first, then DASH video+audio, and finally yt-dlp's best available format.
         const selectors = [
-            'best[ext=mp4][height<=720][acodec!=none]/best[height<=720][acodec!=none]',
-            'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio',
-            'best[height<=720]/best',
+            'bestvideo*+bestaudio/best',
+            'bestvideo[ext=mp4]+bestaudio[ext=m4a]/bestvideo+bestaudio',
+            'best[ext=mp4][acodec!=none]/best[acodec!=none]/best',
         ];
         let lastError;
         for (let i = 0; i < selectors.length; i++) {
             const format = selectors[i];
             try {
                 progressCb(35 + i * 12, `Đang tải luồng video ${i + 1}/${selectors.length}`);
-                await ytdl(fbUrl, { ...commonOptions, output: outputTemplate, format });
+                await runYtDlpWithProgress(
+                    ytdl,
+                    fbUrl,
+                    { ...commonOptions, output: outputTemplate, format },
+                    (realPct, meta) => {
+                        const overallPct = 20 + realPct * 0.62;
+                        const parts = [`Đã tải ${realPct.toFixed(0)}%`];
+                        if (meta.downloaded && meta.total && meta.total !== 'NA') parts.push(`${meta.downloaded}/${meta.total}`);
+                        if (meta.speed && meta.speed !== 'NA') parts.push(meta.speed);
+                        if (meta.eta && meta.eta !== 'NA') parts.push(`còn ${meta.eta}`);
+                        progressCb(overallPct, parts.join(' • '));
+                    }
+                );
                 lastError = null;
                 break;
             } catch (error) {
@@ -982,13 +994,19 @@ async function downloadFacebookVideo(fbUrl, progressCb = () => {}) {
 
     // Download locally first. Facebook CDN URLs are short-lived and often return
     // HTTP 403 when they are extracted by one service and fetched again by Render.
-    try {
-        console.log('[FB] Trying direct yt-dlp download...');
-        const direct = await retryWithBackoff(() => downloadFacebookDirect(realUrl, progressCb), 2, 1000);
-        console.log('[FB] ✅ Direct yt-dlp download succeeded');
-        return direct;
-    } catch (e) {
-        console.log(`[FB] ❌ Direct yt-dlp failed: ${e.message}; trying API fallbacks`);
+    if (providerCanRun('facebook:yt-dlp')) {
+        try {
+            console.log('[FB] Trying direct yt-dlp download...');
+            const direct = await retryWithBackoff(() => downloadFacebookDirect(realUrl, progressCb), 2, 1000);
+            recordProviderResult('facebook:yt-dlp', true);
+            console.log('[FB] ✅ Direct yt-dlp download succeeded');
+            return direct;
+        } catch (e) {
+            recordProviderResult('facebook:yt-dlp', false, e);
+            console.log(`[FB] ❌ Direct yt-dlp failed: ${e.message}; trying API fallbacks`);
+        }
+    } else {
+        console.log('[FB] ⏭️ Direct yt-dlp is cooling down; switching provider');
     }
 
     const HB = {
@@ -1097,17 +1115,27 @@ async function downloadFacebookVideo(fbUrl, progressCb = () => {}) {
         },
     ];
 
+    const apiNames = ['SnapSave', 'Cobalt', 'GetMyFB', 'SaveFrom', 'FBDownloader', 'FDown', 'yt-dlp-info'];
     for (let i = 0; i < apis.length; i++) {
+        const providerName = `facebook:${apiNames[i]}`;
+        if (!providerCanRun(providerName)) {
+            console.log(`[FB] ⏭️ ${apiNames[i]} is cooling down; skipping`);
+            continue;
+        }
         try {
-            progressCb(35 + Math.min(i * 6, 42), `Đang thử máy chủ dự phòng ${i + 1}/${apis.length}`);
+            progressCb(35 + Math.min(i * 6, 42), `Đang chuyển sang ${apiNames[i]} (${i + 1}/${apis.length})`);
             console.log(`[FB] Trying API #${i + 1}/${apis.length}...`);
             const result = await retryWithBackoff(apis[i], 2, 800);
             if (result?.url) {
+                recordProviderResult(providerName, true);
                 console.log(`[FB] ✅ API #${i + 1} succeeded`);
                 const sizeInfo = await checkVideoSize(result.url);
                 return { ...result, ...sizeInfo };
             }
-        } catch (e) { console.log(`[FB] ❌ API #${i + 1} failed: ${e.message}`); }
+        } catch (e) {
+            recordProviderResult(providerName, false, e);
+            console.log(`[FB] ❌ API #${i + 1} failed: ${e.message}`);
+        }
     }
     return null;
 }
@@ -1152,6 +1180,72 @@ async function validateTikTokVideoUrl(url, strategyNumber) {
     }
 
     return url;
+}
+
+// Lightweight circuit breaker: providers that fail repeatedly are skipped for
+// a short cooldown instead of slowing every user request down.
+const providerHealth = new Map();
+const PROVIDER_FAILURE_LIMIT = 2;
+const PROVIDER_COOLDOWN_MS = 10 * 60 * 1000;
+
+function providerCanRun(name) {
+    const state = providerHealth.get(name);
+    return !state?.disabledUntil || state.disabledUntil <= Date.now();
+}
+
+function recordProviderResult(name, ok, error = '') {
+    const state = providerHealth.get(name) || { failures: 0, successes: 0, disabledUntil: 0, lastError: '' };
+    if (ok) {
+        state.successes++;
+        state.failures = 0;
+        state.disabledUntil = 0;
+        state.lastError = '';
+    } else {
+        state.failures++;
+        state.lastError = String(error?.message || error || '').slice(0, 160);
+        if (state.failures >= PROVIDER_FAILURE_LIMIT) state.disabledUntil = Date.now() + PROVIDER_COOLDOWN_MS;
+    }
+    providerHealth.set(name, state);
+}
+
+function runYtDlpWithProgress(ytdl, url, options, progressCb = () => {}) {
+    if (typeof ytdl.exec !== 'function') return ytdl(url, options);
+
+    return new Promise((resolve, reject) => {
+        const child = ytdl.exec(url, {
+            ...options,
+            newline: true,
+            progress: true,
+            progressTemplate: 'download:NOBITA|%(progress._percent_str)s|%(progress._downloaded_bytes_str)s|%(progress._total_bytes_estimate_str)s|%(progress._speed_str)s|%(progress._eta_str)s',
+        });
+        let stdout = '';
+        let stderr = '';
+        const pending = { stdout: '', stderr: '' };
+
+        const consume = (chunk, stream) => {
+            pending[stream] += chunk.toString();
+            const lines = pending[stream].split(/\r?\n/);
+            pending[stream] = lines.pop() || '';
+            for (const line of lines) {
+                const match = line.match(/NOBITA\|\s*([\d.]+)%\|([^|]*)\|([^|]*)\|([^|]*)\|([^|]*)/);
+                if (!match) continue;
+                const percent = Number(match[1]);
+                if (!Number.isFinite(percent)) continue;
+                progressCb(percent, {
+                    downloaded: match[2].trim(), total: match[3].trim(),
+                    speed: match[4].trim(), eta: match[5].trim(),
+                });
+            }
+        };
+
+        child.stdout?.on('data', chunk => { stdout += chunk; consume(chunk, 'stdout'); });
+        child.stderr?.on('data', chunk => { stderr += chunk; consume(chunk, 'stderr'); });
+        child.once('error', reject);
+        child.once('close', code => {
+            if (code === 0) resolve(stdout);
+            else reject(Object.assign(new Error(stderr.trim() || `yt-dlp exited with code ${code}`), { stderr }));
+        });
+    });
 }
 
 async function fetchTikTokMobileApi(url) {
@@ -1365,7 +1459,7 @@ async function downloadYouTubeVideo(url) {
 
             // Chọn format: ưu tiên video+audio mp4 <= 50MB
             const fmtArgs = [
-                '-f', 'bestvideo[ext=mp4][height<=720]+bestaudio[ext=m4a]/bestvideo[height<=720]+bestaudio/best[ext=mp4]/best',
+                '-f', 'bestvideo*+bestaudio/best',
                 '--merge-output-format', 'mp4',
             ];
 
@@ -1399,7 +1493,7 @@ async function downloadYouTubeVideo(url) {
     // ── Strategy 2: Cobalt ────────────────────────────────────
     try {
         const res = await axios.post('https://api.cobalt.tools/',
-            { url, videoQuality: '720', vCodec: 'h264' },
+            { url, videoQuality: 'max', vCodec: 'h264' },
             { timeout: 25000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' } }
         );
         if (res.data?.url) {
@@ -1837,7 +1931,7 @@ async function downloadVimeoVideo(url) {
         if (info.duration > 600) throw new Error('Video quá dài (chỉ hỗ trợ dưới 10 phút)');
 
         await execFA(ytdlpPath, [
-            '-f', 'bestvideo[height<=720]+bestaudio/best[height<=720]/best',
+            '-f', 'bestvideo*+bestaudio/best',
             '--merge-output-format', 'mp4',
             '--no-warnings', '--no-check-certificates', '-o', tempPath, url,
         ], { timeout: 180000, maxBuffer: 50 * 1024 * 1024 });
@@ -1850,7 +1944,7 @@ async function downloadVimeoVideo(url) {
 
     // Strategy 2: Cobalt
     try {
-        const res = await axios.post('https://api.cobalt.tools/', { url, videoQuality: '720' }, {
+        const res = await axios.post('https://api.cobalt.tools/', { url, videoQuality: 'max' }, {
             timeout: 20000, headers: { Accept: 'application/json', 'Content-Type': 'application/json', 'User-Agent': 'Mozilla/5.0' },
         });
         if (res.data?.url) { const sz = await checkVideoSize(res.data.url); return { url: res.data.url, title: 'Vimeo Video', ...sz }; }
@@ -2000,10 +2094,13 @@ async function processQueue() {
         );
 
         let lastProgress = 5;
+        let lastProgressUpdateAt = 0;
         const showProgress = (percent, detail) => {
             const pct = Math.max(lastProgress, Math.min(100, Math.round(percent)));
-            if (pct < 100 && pct - lastProgress < 3) return;
+            const now = Date.now();
+            if (pct < 100 && pct - lastProgress < 3 && now - lastProgressUpdateAt < 1500) return;
             lastProgress = pct;
+            lastProgressUpdateAt = now;
             const filled = Math.round(pct / 100 * 12);
             const bar = '█'.repeat(filled) + '░'.repeat(12 - filled);
             const icon = pct >= 100 ? '✅' : pct >= 85 ? '📤' : pct >= 30 ? '⚙️' : '🔎';
@@ -2210,9 +2307,12 @@ async function processQueue() {
                     setCacheWithTtl(mp3Cache, mp3Id, { url: req.url, platform: req.platform }, MP3_CACHE_TTL);
 
                     showProgress(94, 'Đang gửi video đến bạn');
+                    const sourceCaption = `${botSettings.captionText || '🎬 Nobita Downloader'}\n\n🔗 Link gốc: ${req.url}`.slice(0, 1024);
                     await smartSendFile(req.chatId, tempFile, {
                         isVideo: true,
-                        caption: botSettings.captionText,
+                        caption: sourceCaption,
+                        // Reply to the exact message that contained the URL so
+                        // users can always match a downloaded video to its source.
                         reply_to_message_id: req.messageId,
                     });
                     showProgress(100, 'Video đã gửi thành công');
@@ -3310,6 +3410,14 @@ app.get('/api/system/health', requireAdmin, (req, res) => {
         hostname:      os.hostname(), platform: os.platform(), arch: os.arch(),
         nodeVersion:   process.version, uptime: process.uptime(), version: BOT_VERSION,
         telegramClient: !!tgClient,
+        downloadProviders: Array.from(providerHealth.entries()).map(([name, state]) => ({
+            name,
+            status: state.disabledUntil > Date.now() ? 'cooldown' : 'healthy',
+            successes: state.successes,
+            consecutiveFailures: state.failures,
+            retryAt: state.disabledUntil || null,
+            lastError: state.lastError || '',
+        })),
     });
 });
 
