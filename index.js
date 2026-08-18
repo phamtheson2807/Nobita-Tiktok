@@ -97,7 +97,8 @@ const MAX_CONCURRENT  = parseInt(process.env.MAX_CONCURRENT_REQUESTS || '5');
 const BOT_URL         = process.env.RENDER_EXTERNAL_URL || process.env.BOT_URL || 'http://localhost:3000';
 const DASHBOARD_TOKEN = process.env.DASHBOARD_TOKEN || 'nobita_admin';
 const DASHBOARD_URL   = `${BOT_URL}/dashboard?token=${DASHBOARD_TOKEN}`;
-const BOT_VERSION     = '4.2';
+const BOT_VERSION     = '4.3';
+const BUILD_COMMIT    = (process.env.RENDER_GIT_COMMIT || process.env.GIT_COMMIT || 'local').slice(0, 8);
 const BOT_START_TIME  = Date.now();
 
 // Telegram giới hạn upload 50MB (Bot API), dùng sendDocument bypass cho audio nặng
@@ -2509,6 +2510,17 @@ bot.onText(/^\/status$/, (msg) => {
     );
 });
 
+bot.onText(/^\/version$/, (msg) => {
+    bot.sendMessage(msg.chat.id,
+        `🧩 *Phiên bản đang chạy*\n\n` +
+        `🤖 Nobita Bot: *v${BOT_VERSION}*\n` +
+        `🔖 Commit: \`${BUILD_COMMIT}\`\n` +
+        `🖥️ Môi trường: ${process.env.RENDER ? 'Render' : 'Local'}\n\n` +
+        `Giao diện tiến trình mới yêu cầu phiên bản *4.3 trở lên*.`,
+        { parse_mode: 'Markdown', reply_to_message_id: msg.message_id }
+    ).catch(err => console.error('[Version]', safeErrorMessage(err)));
+});
+
 bot.onText(/^\/platforms$/, (msg) => {
     const lines = Object.entries(PLATFORMS).map(([key, p]) => {
         const s     = platformStats[key] || { ok: 0, fail: 0 };
@@ -3136,7 +3148,7 @@ app.use(express.static(path.join(__dirname, 'public')));
 app.use(express.json({ limit: '50mb' }));
 
 app.get('/health', (req, res) => res.json({
-    status: 'ok', uptime: process.uptime(), version: BOT_VERSION,
+    status: 'ok', uptime: process.uptime(), version: BOT_VERSION, commit: BUILD_COMMIT,
     queue: requestQueue.length, processing: processingCount,
     telegramClient: !!tgClient,
 }));
@@ -3408,7 +3420,7 @@ app.get('/api/system/health', requireAdmin, (req, res) => {
         cpuCount:      os.cpus().length,
         cpuModel:      os.cpus()[0]?.model || 'Unknown',
         hostname:      os.hostname(), platform: os.platform(), arch: os.arch(),
-        nodeVersion:   process.version, uptime: process.uptime(), version: BOT_VERSION,
+        nodeVersion:   process.version, uptime: process.uptime(), version: BOT_VERSION, commit: BUILD_COMMIT,
         telegramClient: !!tgClient,
         downloadProviders: Array.from(providerHealth.entries()).map(([name, state]) => ({
             name,
@@ -3622,6 +3634,7 @@ process.on('SIGTERM', () => gracefulShutdown('SIGTERM'));
 process.on('SIGINT',  () => gracefulShutdown('SIGINT'));
 
 console.log(`🚀 Nobita Bot v${BOT_VERSION} is running!`);
+console.log(`🔖 Build commit: ${BUILD_COMMIT}`);
 console.log(`👑 Admin ID:    ${ADMIN_USER_ID}`);
 console.log(`🌐 Platforms:   ${Object.keys(PLATFORMS).join(', ')}`);
 console.log(`✈️  Telegram:    ${tgClient ? 'Client ready' : 'Not configured (add env vars)'}`);
